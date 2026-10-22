@@ -19,4 +19,4 @@ It has the same basic model (prompt, commands, arguments, pipes, redirection), b
 
 ## Part 4: What I just did
 
-I wrote `user/sleep.c`, which checks its arguments and calls the `sleep` system call. The kernel does the waiting, so the process does not use the CPU while it sleeps.
+I wrote `user/sleep.c`, which checks its arguments and calls the `pause` system call. The kernel does the waiting, so the process does not use the CPU while it sleeps.
