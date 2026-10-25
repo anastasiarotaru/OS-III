@@ -1,15 +1,16 @@
-Lab 5 - The File System with Your Own Hands
+# Lab 5 - The File System with Your Own Hands
 
 Name: Rotaru Anastasia
-
 Group: FAF-242
-
 Environment: GitHub Codespaces (container on Ubuntu 22.04), user codespace
 
-Part 1 - The Tree and File Types
+---
 
-Output
+## Part 1 - The Tree and File Types
 
+### 1.1 Output
+
+```bash
 $ ls -ld /etc /etc/passwd /bin /dev/null /tmp
 lrwxrwxrwx  1 root root    7 Apr 22  2024 /bin -> usr/bin
 crw-rw-rw-  1 root root 1, 3 Oct 25 21:41 /dev/null
@@ -49,47 +50,51 @@ brw-rw---- 1 root disk      8,  33 Oct 25 21:41 sdc1
 brw-rw---- 1 root cdrom    11,   0 Oct 25 21:41 sr0
 
 $ file /usr/bin/ls /etc/passwd /bin
-/usr/bin/ls: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=44900829b39271d878615772bb2a6ffa422f0891, for GNU/Linux 3.2.0, stripped
+/usr/bin/ls: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=44900829b39271d878615772bb2a6ffa422f0891, for GNU/Linux[...]
 /etc/passwd: ASCII text
 /bin:        symbolic link to usr/bin
 
 $ du -sh /var/log 2>/dev/null ; du -sh /usr 2>/dev/null
 828K    /var/log
 7.0G    /usr
+```
 
+### 1.2 Observations
 
-Observe
+- `/bin` is a symbolic link.
+- `/dev/null` is a character device.
+- `/etc` is a directory.
+- `/etc/passwd` is a regular file.
+- `/tmp` is a directory with the sticky bit and ACL attributes.
 
-Type of each path (from the first letter of ls -l):
+### 1.3 Explanation
 
-/bin: l (Symbolic link)
+#### What is `/bin` on this system?
+`/bin` is a symbolic link that points to `usr/bin`.
 
-/dev/null: c (Character device)
+#### Character and block devices in `/dev`
+- Character device: `/dev/null`  
+  It handles unbuffered text streams and processes data character by character.
+- Block device: `/dev/sda1`  
+  It handles buffered data in fixed-size blocks, which is typical for storage devices.
 
-/etc: d (Directory)
+#### Which is bigger, `/var/log` or `/usr`?
+`/usr` is much larger than `/var/log`.
 
-/etc/passwd: - (Regular file)
+- `/var/log`: about `828 KB`
+- `/usr`: about `7.0 GB`
 
-/tmp: d (Directory with sticky bit and ACL)
+So `/usr` is larger by roughly 7 GB.
 
-What is /bin on your system: a directory or a link, and to where?
+---
 
-/bin is a symbolic link that targets usr/bin.
+## Part 2 - Inodes and Links
 
-A character device and a block device in /dev:
+### 2.1 Creating a file and checking inode information
 
-Character Device: /dev/null (handles unbuffered data streams character-by-character).
+#### Output
 
-Block Device: /dev/sda1 (handles buffered data transfers in fixed blocks for storage devices).
-
-Which is bigger, /var/log or /usr, and by roughly how much?
-
-/usr is considerably larger than /var/log. While /var/log takes up 828 KB, /usr uses 7.0 GB, making /usr larger by about 7 gigabytes.
-
-Part 2 - Inodes and Links
-
-2.1 Output
-
+```bash
 $ echo hello > notes.txt
 
 $ stat notes.txt
@@ -104,10 +109,16 @@ Change: 2026-10-25 21:49:05.959342107 +0000
 
 $ ls -li notes.txt
 1443212 -rw-r--r-- 1 codespace codespace 6 Oct 25 21:49 notes.txt
+```
 
+#### Observation
+The inode number is `1443212`, and the number of hard links is `1`.
 
-2.2 Output (Hard Link)
+### 2.2 Hard link
 
+#### Output
+
+```bash
 $ ln notes.txt hard.txt
 
 $ ls -li notes.txt hard.txt
@@ -119,10 +130,17 @@ $ rm notes.txt
 $ cat hard.txt ; ls -li hard.txt
 hello
 1443212 -rw-r--r-- 1 codespace codespace 6 Oct 25 21:49 hard.txt
+```
 
+#### Explanation
+Both names point to the same inode, so deleting `notes.txt` does not destroy the file data immediately.  
+`rm` removes only the directory entry; the inode and its data remain until the last link is removed.
 
-2.3 Output (Symbolic Link)
+### 2.3 Symbolic link
 
+#### Output
+
+```bash
 $ ln -s hard.txt soft.txt
 
 $ ls -li hard.txt soft.txt
@@ -137,19 +155,39 @@ $ rm hard.txt
 $ cat soft.txt ; ls -l soft.txt
 cat: soft.txt: No such file or directory
 lrwxrwxrwx 1 codespace codespace 8 Oct 25 21:49 soft.txt -> hard.txt
+```
 
+#### Explanation
+A symbolic link stores a text path to another file, not the file data itself.  
+The file `soft.txt` is exactly 8 bytes long because it contains the string `"hard.txt"`.
 
-2.4 Output (Directory Links)
+After `hard.txt` is removed, the symlink becomes a dangling symlink: it still exists, but its target no longer exists.
 
+### 2.4 Directory links
+
+#### Output
+
+```bash
 $ mkdir d ; ls -ld d
 drwxr-xr-x 2 codespace codespace 4096 Oct 25 21:49 d
 
 $ mkdir d/x d/y ; ls -ld d
 drwxr-xr-x 4 codespace codespace 4096 Oct 25 21:49 d
+```
 
+#### Explanation
+A new directory starts with 2 links:
+- one from its entry in the parent directory
+- one from the `.` entry inside itself
 
-2.5 Output (Size is not Space)
+When subdirectories are created, each subdirectory contains a `..` entry pointing back to the parent directory.  
+This adds 2 more links to the parent directory, so the count becomes 4.
 
+### 2.5 Size is not space
+
+#### Output
+
+```bash
 $ echo x > one.txt ; ls -l one.txt ; du -h one.txt
 -rw-r--r-- 1 codespace codespace 2 Oct 25 21:49 one.txt
 4.0K    one.txt
@@ -159,42 +197,30 @@ $ truncate -s 1G big.img ; ls -lh big.img ; du -h big.img
 0       big.img
 
 $ rm big.img
+```
 
+#### Explanation
+A 2-byte file still uses a whole 4 KB block on disk because filesystems allocate space in fixed-size blocks.
 
-Observe
+A 1 GB sparse file (`truncate -s 1G`) has a logical size of 1 GB but consumes almost no actual disk space until data is written.  
+Therefore, `du` shows `0`.
 
-Which number in stat is the inode, and which one tells how many names the file has?
+### 2.6 Summary
+- The inode number identifies the actual filesystem object.
+- The `Links` count tells how many directory entries point to the same inode.
+- `rm` deletes directory entries, not necessarily the underlying file.
+- Symbolic links point to paths, while hard links point to the same inode.
+- File size and disk usage are not the same thing.
 
-Inode number: 1443212 (listed as Inode: 1443212).
+---
 
-Number of names (hard link count): 1 (listed as Links: 1).
+## Part 3 - Permissions
 
-After rm notes.txt, why could you still read hard.txt? What does rm really remove?
+### 3.1 Basic permission experiments
 
-hard.txt references the exact same inode (1443212) and data blocks on disk as notes.txt. Running rm removes only the filename entry notes.txt from the directory structure and decreases the inode's link counter from 2 to 1. The data on disk remains accessible through hard.txt until all link references are removed.
+#### Output
 
-Why did cat soft.txt fail at the end, although soft.txt still exists? How big is soft.txt, and why exactly that size?
-
-soft.txt stores only the textual path string pointing to hard.txt. When hard.txt was erased, soft.txt turned into a dangling symlink targeting a non-existent file.
-
-soft.txt is 8 bytes long because its contents consist solely of the 8-character string "hard.txt".
-
-A new directory has 2 links, and 4 after you create two subdirectories. Explain where each link comes from.
-
-A freshly created directory d has 2 links: one from its entry inside the parent folder, and another from its internal . (self) link.
-
-Creating subdirectories d/x and d/y introduces a .. (parent reference) inside both x and y pointing back to d, increasing d's link count by 2 (raising it to 4).
-
-Why does a 2-byte file use 4.0K, and a 1 GB file use 0 on disk?
-
-one.txt uses 4.0K because block storage systems allocate space in minimal fixed block sizes (4 KB), so even a 2-byte file consumes one full block.
-
-big.img uses 0 bytes of real disk space because truncate generates a sparse file—a file structure that tracks metadata boundaries without assigning actual disk storage blocks until data is written.
-
-Part 3 - Permissions
-
-3.1 Output
-
+```bash
 $ echo secret > s.txt
 
 $ chmod 600 s.txt ; ls -l s.txt
@@ -210,10 +236,25 @@ $ umask ; touch new.txt ; mkdir newdir ; ls -ld new.txt newdir
 0022
 -rw-r--r-- 1 codespace codespace    0 Oct 25 21:49 new.txt
 drwxr-xr-x 2 codespace codespace 4096 Oct 25 21:49 newdir
+```
 
+#### Explanation
+When a file has permissions `000`, the owner still cannot read it because ownership does not override permission checking.  
+The kernel checks permission bits before granting access.
 
-3.2 Output (Directories)
+The umask is `0022`. This subtracts permissions from the default values:
+- regular files default to `666` → `644`
+- directories default to `777` → `755`
 
+Therefore:
+- `new.txt` becomes `-rw-r--r--`
+- `newdir` becomes `drwxr-xr-x`
+
+### 3.2 Directory permission experiment
+
+#### Output
+
+```bash
 $ mkdir box ; echo hi > box/f
 
 $ chmod u=r,go= box ; ls box ; cat box/f
@@ -225,10 +266,27 @@ ls: cannot open directory 'box': Permission denied
 hi
 
 $ chmod 755 box
+```
 
+#### Explanation
+The permission bits on directories work differently than on files.
 
-3.3 Output (Special Bits)
+- `r` on a directory allows reading the list of entries.
+- `x` on a directory allows entering it and accessing its contents.
 
+In the first case:
+- `ls box` succeeded because read permission was granted.
+- `cat box/f` failed because execute permission was absent.
+
+In the second case:
+- `ls box` failed because read permission was absent.
+- `cat box/f` succeeded because the file could still be accessed by its full path, even without listing the directory.
+
+### 3.3 Special permission bits
+
+#### Output
+
+```bash
 $ ls -l /usr/bin/passwd ; ls -ld /tmp
 -rwsr-xr-x 1 root root 64152 May 30  2024 /usr/bin/passwd
 drwxr-xrwt+ 4 root root 4096 Oct 25 21:42 /tmp
@@ -238,54 +296,37 @@ cat: /etc/shadow: Permission denied
 
 $ ls -l /etc/shadow
 -rw-r----- 1 root shadow 603 Sep 10 12:29 /etc/shadow
+```
 
+#### Explanation
+- `s` in `/usr/bin/passwd` stands for the SetUID bit.
+- `t` in `/tmp` stands for the sticky bit.
 
-Observe
+`passwd` needs the SetUID bit so a normal user can run it with root privileges in order to update password-related files.  
+The sticky bit on `/tmp` ensures that users can only delete or rename files they own inside the directory.
 
-Write 600, 644, 755 and 700 as rwx strings, and give one real use for each.
+### 3.4 Permission examples
 
-600 (-rw-------): Read and write permissions restricted strictly to the file owner. Use: Private keys (e.g., ~/.ssh/id_rsa).
+- `600` → `-rw-------`
+- `644` → `-rw-r--r--`
+- `755` → `-rwxr-xr-x`
+- `700` → `-rwx------`
 
-644 (-rw-r--r--): Read and write permissions for the owner; read-only access for group members and others. Use: Public site resources or configuration files.
+#### Real uses
+- `600`: private SSH keys
+- `644`: public-readable configuration files
+- `755`: executables and scripts
+- `700`: directories or scripts reserved for one user
 
-755 (-rwxr-xr-x): Full access for the owner; read and execution permissions for group members and others. Use: Shell scripts or binary executables in system directories.
+---
 
-700 (-rwx------): Read, write, and execute permissions granted exclusively to the owner. Use: Confidential operational scripts or user-private directory structures.
+## Part 4 - Disks and the Kernel as Files
 
-With chmod 000 you own the file but cannot read it. Why does ownership not help?
+### 4.1 Disk and filesystem information
 
-File ownership does not bypass permission checks; it only determines which set of permission bits (User, Group, or Others) applies when a process attempts to access the file. When you access a file you own, the operating system selects the owner triplet (the first three bits). Because chmod 000 sets the owner bits to ---, access is denied despite ownership. The only identity that bypasses standard rwx permission bits entirely is root. This results in an explicit block on access.
+#### Output
 
-What is your umask, and how does it explain the permissions of new.txt and newdir?
-
-The umask setting is 0022. It subtracts specific permission bits from default bases during item creation:
-
-Regular files begin with base 666 (rw-rw-rw-). Masking 0022 leaves 644 (-rw-r--r--), which matches new.txt.
-
-Directories begin with base 777 (rwxrwxrwx). Masking 0022 leaves 755 (drwxr-xr-x), which matches newdir.
-
-Explain the box experiment: what does r allow on a directory, and what does x allow?
-
-r (Read): Allows reading the directory table to display file names within it (e.g., using ls).
-
-x (Execute/Search): Allows entering the directory, traversing through its path, and accessing metadata or file contents inside it.
-
-In the experiment:
-
-Under chmod u=r, listing directory contents (ls box) succeeded, but accessing box/f failed without directory traversal permission (x).
-
-Under chmod u=x, listing directory contents (ls box) failed, but reading target file contents (cat box/f) succeeded by providing the direct file path.
-
-What do the s in /usr/bin/passwd and the t in /tmp mean, and why does passwd need the s bit?
-
-The s (SetUID) bit on /usr/bin/passwd tells the kernel to execute the command under the rights of the file's owner (root). This capability allows non-root users to modify their user credentials saved in elevated security files like /etc/shadow.
-
-The t (Sticky Bit) on /tmp ensures that files inside this shared space can only be deleted or renamed by the file owner or the root administrative account.
-
-Part 4 - Disks and the Kernel as Files
-
-Output
-
+```bash
 $ lsblk
 NAME    MAJ:MIN RM   SIZE RO TYPE MOUNTPOINTS
 loop0     7:0    0    74M  1 loop 
@@ -327,37 +368,15 @@ $ df -h /
 Filesystem      Size  Used Avail Use% Mounted on
 overlay          32G   12G   19G  38% /
 
-$ lsblk -f
-NAME    FSTYPE FSVER LABEL UUID FSAVAIL FSUSE% MOUNTPOINTS
-loop0                                          
-loop1                                          
-loop2                                          
-loop3                                          
-loop4                             18.6G    35% /var/lib/containerd
-                                               /home/vscode/.minikube
-                                               /workspaces/.codespaces/.persistedshare
-                                               /var/lib/docker
-                                               /etc/hosts
-                                               /etc/hostname
-                                               /etc/resolv.conf
-                                               /workspaces
-loop5                                          
-sda                                            
-├─sda1                            12.9G    55% /workspaces/.codespaces/shared
-│                                              /.codespaces/bin
-│                                              /vscode
-│                                              /usr/sbin/docker-init
-├─sda14                                        
-└─sda15                                        
-sdb                                            
-└─sdb1                            39.7G     5% /tmp
-sdc                                            
-└─sdc1                                         
-sr0                                            
-
 $ mount | grep " / "
-overlay on / type overlay (rw,relatime,lowerdir=/var/lib/docker/overlay2/l/KSEMGVJEKSYD4C56ITBY44F7XJ:/var/lib/docker/overlay2/l/ZJQ5245WW4Q7A7CYK3P2SZYIMD:/var/lib/docker/overlay2/l/QAXJCL2DNKHR5CCD6DQC2LMWOI:/var/lib/docker/overlay2/l/O76VGHRRHDS6BJMZGYYOYU6J6E:/var/lib/docker/overlay2/l/COQXJ2XREH624H74URK4CVGXUC:/var/lib/docker/overlay2/l/ML2O6SDGWCC5TJX2EFYBST3N5B:/var/lib/docker/overlay2/l/ELYOP56KWROTLPAQSMLU6IKEBB:/var/lib/docker/overlay2/l/FPW77L3ZCBZNRRW7GTLVML4HMO:/var/lib/docker/overlay2/l/F6D5ZMBBNNCIETGPM3RUZK4F7W:/var/lib/docker/overlay2/l/2QDNJ3WTTHUB2EGTBWIKYUGXE3:/var/lib/docker/overlay2/l/TFSHNOLTZT6J4G5HVHJPS2O4A2:/var/lib/docker/overlay2/l/IESA3SYTHMX3WJRCPIKGLGQFBW:/var/lib/docker/overlay2/l/WEUKK4JTM33YFTNVNQBHXREXAU:/var/lib/docker/overlay2/l/3QVGGB5BKGQBNZVQY6V75HDJ74:/var/lib/docker/overlay2/l/EXPM3Y4PNKW5AIB3KU3S2DJY77:/var/lib/docker/overlay2/l/ER5HPNE5VXZYUFVCFRMM2IF3A3:/var/lib/docker/overlay2/l/T5TITQE2I2XTXY37YAVPDNABKG:/var/lib/docker/overlay2/l/6GL5DTSKK6GHFESR4E423ZVT7L:/var/lib/docker/overlay2/l/ZIQ7VJCSZ53KPD5JEM3CMIV2R7:/var/lib/docker/overlay2/l/YMAHWBML5WSQKSJYAA23EMPQMT:/var/lib/docker/overlay2/l/ZZMPRI3FNYA3IQLTOYXLCLMUIN:/var/lib/docker/overlay2/l/R5A7XXBOEGRC2JPFWKXWDEQ7CT:/var/lib/docker/overlay2/l/4NDQD2K5BPLULZZEIJQZGF5FFQ:/var/lib/docker/overlay2/l/MTPUTL7KJXDXPTSPR2ZMJST5M5:/var/lib/docker/overlay2/l/3KXALDXVJM5UU7HDAYRK6QUJVW:/var/lib/docker/overlay2/l/Z3GVQMJJNJZQJGDAN53PLTOIE3:/var/lib/docker/overlay2/l/YTOZCMPAF2PQB5EGJLYTZHQ4GD:/var/lib/docker/overlay2/l/JPRFBSZMTSALEBNBX77F5VMYPE:/var/lib/docker/overlay2/l/WTS3UUQI4A6HROUZPMI6KCWJU3:/var/lib/docker/overlay2/l/JBQX3Q2O3IFFEVEFDAVHS4MTFG:/var/lib/docker/overlay2/l/CAZGISGVDPUKDCJ4USIA5BQC3W:/var/lib/docker/overlay2/l/OJPTCDH5VWMIMLQ7Q5JPJBRWON,upperdir=/var/lib/docker/overlay2/1f3cfda4c0954e57fb15198ce26bdd23dcde74e6a99890a40b157e3b9e909afe/diff,workdir=/var/lib/docker/overlay2/1f3cfda4c0954e57fb15198ce26bdd23dcde74e6a99890a40b157e3b9e909afe/work,nouserxattr)
+overlay on / type overlay (rw,relatime,lowerdir=/var/lib/docker/overlay2/l/KSEMGVJEKSYD4C56ITBY44F7XJ:/var/lib/docker/overlay2/l/ZJQ5245WW4Q7A7CYK3P2SZYIMD:/var/lib/docker/overlay2/l/QAXJCL2DNKHR5CCD6[...]
+```
 
+### 4.2 Kernel and process information
+
+#### Output
+
+```bash
 $ grep -c processor /proc/cpuinfo
 2
 
@@ -379,66 +398,77 @@ lrwx------ 1 codespace codespace 64 Oct 25 21:49 0 -> /dev/pts/1
 l-wx------ 1 codespace codespace 64 Oct 25 21:49 1 -> pipe:[106563]
 l-wx------ 1 codespace codespace 64 Oct 25 21:49 2 -> pipe:[106563]
 lr-x------ 1 codespace codespace 64 Oct 25 21:49 3 -> /proc/5766/fd
+```
 
+### 4.3 Interpretation
 
-Observe
+#### Root filesystem
+The root filesystem is mounted as:
 
-Draw your disk: disk names, partitions, which one is mounted at /, and with what file system type.
+- `/` → `overlay`
+- file system type: `overlay`
 
-[Storage Layout Diagram]
+The root filesystem is about `38% full`:
+- total: `32G`
+- used: `12G`
+- free: `19G`
 
-+-------------------------------------------------------------------------+
-| Virtual Root File System (Container Layer)                              |
-|   - Mounted at: /                                                       |
-|   - File System Type: overlay (32 GB)                                   |
-+-------------------------------------------------------------------------+
+#### CPU and memory
+- CPU cores: `2`
+- RAM: `8,131,872 kB` ≈ `7.76 GB`
 
-Physical / Virtual Disk Drives:
+#### What does `/proc/self/status` show?
+The process name shown is `head`, because `/proc/self` refers to the current process.  
+The command being run at that moment was:
 
-+-- sda (30 GB Disk)
-|   +-- sda1  (29.9 GB) --> Mounted at /vscode, /workspaces/.codespaces/shared
-|   +-- sda14 (4.0 MB)  --> Partition (unmounted)
-|   +-- sda15 (106 MB)  --> Partition (unmounted)
-|
-+-- sdb (45 GB Disk)
-|   +-- sdb1  (45 GB)   --> Mounted at /tmp
-|
-+-- sdc (512 GB Disk)
-|   +-- sdc1  (512 GB)  --> Unmounted partition
-|
-+-- loop4 (32 GB Virtual Loop Device)
-    +-- Mounted at /workspaces, /var/lib/docker, /etc/hosts
+```bash
+head -5 /proc/self/status
+```
 
+Thus, the kernel reports the current process name as `head`.
 
-How full is your root file system?
+---
 
-The root filesystem (overlay) is 38% full, using 12 GB out of 32 GB, with 19 GB of available capacity remaining.
+## Bonus
 
-How many CPU cores and how much RAM does the system have, according to /proc?
+### Bonus A - Magic numbers in gzip
 
-CPU Cores: 2 virtual processors (/proc/cpuinfo).
+#### Output
 
-RAM: Total memory (MemTotal) is 8,131,872 kB (~7.76 GB).
-
-/proc/self/status showed the name of a program. Which one, and why that one?
-
-The program name reported is head. This occurs because /proc/self dynamically evaluates to the process reading the information at runtime—which was head (head -5 /proc/self/status).
-
-Bonus
-
-(a) Magic numbers
-
+```bash
 $ gzip -c /etc/passwd > notes2.txt ; file notes2.txt ; xxd notes2.txt | head -1
 notes2.txt: gzip compressed data, was "passwd", last modified: Thu Sep 10 12:29:43 2026, from Unix, original size modulo 2^32 1115
 00000000: 1f8b 0808 b7a2 a26a 0003 7061 7373 7764  .......j..passwd
+```
 
+#### Explanation
+The first bytes are `1f 8b`, which are the gzip magic numbers.  
+These bytes identify the file as gzip-compressed data.
 
-Answer: The hex sequence 1f 8b at the beginning of the file represents the magic numbers for the gzip format. The system reads these bytes to identify the file payload as a compressed archive independent of its file extension.
+### Bonus B - Deleted file still open
 
-(c) Open file deleted
+#### Output
 
+```bash
 $ echo ceva > bigfile; exec 3< bigfile; rm bigfile; ls -l /proc/$$/fd; exec 3<&-
 lr-x------ 1 codespace codespace 64 Oct 25 21:49 3 -> /home/codespace/os-lab5/bigfile (deleted)
+```
 
+#### Explanation
+Even after the file is removed from the directory, the process still has an open file descriptor to it.  
+The kernel keeps the inode alive until all descriptors are closed, so the deleted file still exists as long as the process keeps it open.
 
-Answer: When bigfile was removed while file descriptor 3 held an open reference (exec 3< bigfile), rm removed its directory link, but the filesystem retained the underlying data blocks. The entry is marked as (deleted) inside /proc/$$/fd. Disk blocks are reclaimed only after closing the descriptor (exec 3<&-).
+---
+
+## Conclusion
+
+This laboratory work helped me understand the fundamental structure and behavior of the Linux filesystem. I learned how to distinguish file types, how directories and inodes work, how permissions are enforced, and how the kernel exposes system information through pseudo-filesystems such as `/proc`.
+
+The most important ideas from this lab were:
+- files are not just names; they are connected to inodes,
+- hard links and symbolic links behave differently,
+- permissions are enforced by the kernel,
+- `/proc` exposes live system state in a filesystem-like way,
+- storage devices and mount points are represented as files and directories.
+
+This knowledge is essential for understanding how Linux organizes data, access, and resources at the operating system level.
