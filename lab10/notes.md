@@ -1,0 +1,138 @@
+# Lab 9 & Lab 10: System Calls & Kernel Tracing
+
+**Student:** Anastasia Rotaru
+**Group:** FAF-242
+**Course:** Operating Systems, FCIM / FAF, UTM, 2026-2027
+**Environment:** Ubuntu 24.04 (arm64) running in a Docker container on macOS (Apple Silicon). Kernel reported by Docker Desktop: 7.0.14-linuxkit. strace version 6.8, gcc 13.3.0.
+
+---
+
+## Part 1: System calls of `ls -l`
+
+**Command:**
+
+```bash
+strace -f -e trace=openat,read,write,close ls -l
+```
+
+**Relevant output:**
+
+```text
+openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+openat(AT_FDCWD, "/lib/aarch64-linux-gnu/libselinux.so.1", O_RDONLY|O_CLOEXEC) = 3
+openat(AT_FDCWD, "/lib/aarch64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3
+openat(AT_FDCWD, "/lib/aarch64-linux-gnu/libpcre2-8.so.0", O_RDONLY|O_CLOEXEC) = 3
+openat(AT_FDCWD, "/proc/filesystems", O_RDONLY|O_CLOEXEC) = 3
+read(3, "nodev\tsysfs\nnodev\ttmpfs\nnodev\tpr"..., 1024) = 566
+read(3, "", 1024)                        = 0
+openat(AT_FDCWD, ".", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3
+write(1, "total 0\n", 8total 0
+)                = 8
+close(1)                                 = 0
+close(2)                                 = 0
++++ exited with 0 +++
+```
+
+**Question:** Which system call does `ls` use to print to the screen? To which descriptor does it write?
+
+**Answer:** `ls` prints its output with the `write` system call, to file descriptor **1** (standard output). In the trace, `write(1, "total 0\n", 8)` is the line that puts the listing on the screen. The terminal output is sent to stdout, which is fd 1.
+
+**Observation:** `ls` opens the current directory (`openat(..., ".", ...)`) and reads the directory entries with `getdents64`, which is not in the filter, so it does not appear here. The `read` calls demonstrate that metadata is being loaded from files and the proc filesystem.
+
+---
+
+## Part 2: A program that calls the kernel directly
+
+**Program:** `syscalls.c`, which opens `note.txt`, writes `"hello, kernel\n"` to it, closes it, then reopens it and reads it back.
+
+**Build and run:**
+
+```bash
+gcc -Wall -Wextra -o syscalls syscalls.c
+./syscalls
+```
+
+**Program output (input: none; the program takes no command-line arguments):**
+
+```text
+open returned descriptor 3
+write sent 14 bytes
+read got 14 bytes: hello, kernel
+```
+
+**Trace command:**
+
+```bash
+strace -e trace=openat,write,read,close ./syscalls
+```
+
+**Relevant trace lines and how they map to the C code:**
+
+| C call in `syscalls.c` | System call in the trace | Result |
+|---|---|---|
+| `open("note.txt", O_CREAT \| O_WRONLY \| O_TRUNC, 0644)` | `openat(AT_FDCWD, "note.txt", O_WRONLY\|O_CREAT\|O_TRUNC, 0644) = 3` | descriptor 3 |
+| `write(fd, msg, strlen(msg))` | `write(3, "hello, kernel\n", 14) = 14` | 14 bytes written |
+| `close(fd)` | `close(3) = 0` | success |
+| `open("note.txt", O_RDONLY)` | `openat(AT_FDCWD, "note.txt", O_RDONLY) = 3` | descriptor 3 |
+| `read(fd, buf, sizeof(buf) - 1)` | `read(3, "hello, kernel\n", 63) = 14` | 14 bytes read |
+| `printf(...)` | `write(1, "open returned descriptor 3\n", 27) = 27` (and similar) | printed to stdout |
+
+**Question:** The descriptor returned by the first `openat` is 3, not 0, 1 or 2. Why are those three already taken?
+
+**Answer:** Descriptors **0** (stdin), **1** (stdout) and **2** (stderr) are opened by the operating system for every process before it starts running. The first file the program opens therefore gets the next available descriptor, which is 3.
+
+**Note on `read`:** The program asks for at most 63 bytes (`sizeof(buf) - 1`), but the file contains only 14, so `read` returns 14. The kernel never returns more data than the file holds.
+
+---
+
+## Part 3: Play with the mask (xv6 System Call Tracing)
+
+### 3.1 Observation 1: Trace only `read`
+**Question:** In `trace 32 grep hello README`, why do you see only `read`, and not `open` or `close`?
+
+**Answer:**
+The trace parameter is interpreted as a bitmask. The number 32 in decimal is binary $2^5$ ($1 \ll 5$), which corresponds to setting bit position 5. In xv6, `SYS_read` is defined as syscall number 5. So the mask only enables tracing for the `read` system call; `open` and `close` have other bit positions and are therefore ignored.
+
+---
+
+### 3.2 Observation 2: Child process tracing
+**Question:** In `forkforkfork`, three different pids print lines. Which line of code from Part 2 makes that possible?
+
+**Answer:**
+The code added in `kernel/proc.c` inside the `fork()` function:
+
+```c
+np->trace_mask = p->trace_mask;
+```
+
+This line explicitly copies the parent's `trace_mask` to the newly created child process (`np`). As a result, all child processes created during `forkforkfork` inherit the active mask and continue printing trace information independently.
+
+---
+
+### 3.3 Observation 3: Interleaving output in `echo`
+**Question:** In `trace 65536 echo hi`, the trace line is printed between "hi" and the new line. Why? (How many times does `echo` call `write`?)
+
+**Answer:**
+`echo` makes **two** separate `write` system calls:
+1. The first `write` outputs the argument string `"hi"`.
+2. The second `write` outputs the newline character `"\n"`.
+
+The trace line generated by the kernel via `printk` occurs immediately after the execution of the first `write` syscall completes (displaying `"hi"` without a newline). The kernel's output is flushed between the two writes, which is why the trace appears between the text and the newline.
+
+---
+
+### 3.4 Observation 4: Dual syscall mask
+**Question:** Which mask traces both `open` (15) and `close` (21), and nothing else?
+
+**Answer:**
+The required mask is computed by setting bits 15 and 21:
+- `SYS_open` (bit 15): $2^{15} = 32768$
+- `SYS_close` (bit 21): $2^{21} = 2097152$
+
+$$\text{Combined Mask} = 2^{15} + 2^{21} = 32768 + 2097152 = \mathbf{2129920}$$
+
+Execution command for testing:
+
+```bash
+$ trace 2129920 grep hello README
+```
