@@ -82,3 +82,56 @@ strace -e trace=openat,write,read,close ./syscalls
 **Answer:** Descriptors **0** (stdin), **1** (stdout) and **2** (stderr) are opened by the operating system for every process before it starts running. The first file the program opens therefore gets the lowest free number, which is 3. This is why the `printf` output goes to `write(1, ...)` and not to the file.
 
 **Note on `read`:** The program asks for at most 63 bytes (`sizeof(buf) - 1`), but the file contains only 14, so `read` returns 14. The kernel never returns more data than the file holds.
+
+---
+
+## Part 3: Counting System Calls with `strace -c`
+
+**Choice:** The `write` system call was chosen for analysis because it provides a clear breakdown between screen output (stdout) and file output.
+
+**Command:**
+
+```
+strace -c -e trace=write ./syscalls
+```
+
+**Output:**
+
+```
+open returned descriptor 3
+write sent 14 bytes
+read got 14 bytes: hello, kernel
+
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+100.00    0.000010           2         4           write
+------ ----------- ----------- --------- --------- ----------------
+100.00    0.000010           2         4           total
+```
+
+*Note on output mixing:* The three lines printed by the program (`open returned descriptor 3`, etc.) appear right before the `strace` summary table because standard output from the binary mixes with the output stream produced by `strace`.
+
+**Verification Command (Tracing `write` calls directly):**
+
+```
+strace -e trace=write ./syscalls
+```
+
+**Verification Output:**
+
+```
+write(1, "open returned descriptor 3\n", 27) = 27
+write(3, "hello, kernel\n", 14)          = 14
+write(1, "write sent 14 bytes\n", 20)     = 20
+write(1, "read got 14 bytes: hello, kernel\n", 33) = 33
+```
+
+**Answer and Explanation:**
+
+The `strace -c` summary shows exactly **4 `write` system calls**, with 0 errors.
+
+As proven by the detailed trace command (`strace -e trace=write ./syscalls`):
+
+1. **3 `write` calls to descriptor 1 (stdout):** Each `printf()` in `syscalls.c` internally invokes `write` on file descriptor 1 to output status messages to the terminal screen.
+
+2. **1 `write` call to descriptor 3 (file `note.txt`):** This is the direct system call made by `syscalls.c` to write `"hello, kernel\n"` into `note.txt`. `openat()` returns the lowest available descriptor number, so because descriptors 0, 1, and 2 are already reserved for stdin, stdout, and stderr, it returns 3.
