@@ -135,3 +135,56 @@ As proven by the detailed trace command (`strace -e trace=write ./syscalls`):
 1. **3 `write` calls to descriptor 1 (stdout):** Each `printf()` in `syscalls.c` internally invokes `write` on file descriptor 1 to output status messages to the terminal screen.
 
 2. **1 `write` call to descriptor 3 (file `note.txt`):** This is the direct system call made by `syscalls.c` to write `"hello, kernel\n"` into `note.txt`. `openat()` returns the lowest available descriptor number, so because descriptors 0, 1, and 2 are already reserved for stdin, stdout, and stderr, it returns 3.
+
+### Counting `openat` calls in `ls -l`
+
+**Command:**
+
+```
+strace -c -e trace=openat ls -l
+```
+
+**Output:**
+
+```
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ----------------
+100.00    0.000020           2        10         1 openat
+------ ----------- ----------- --------- --------- ----------------
+100.00    0.000020           2        10         1 total
+```
+
+**Answer:** `ls -l` makes **10** `openat` calls, and **1** of them fails. The full list (`strace -e trace=openat ls -l`) shows what each one opens:
+
+```
+openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+openat(AT_FDCWD, "/lib/aarch64-linux-gnu/libselinux.so.1", O_RDONLY|O_CLOEXEC) = 3
+openat(AT_FDCWD, "/lib/aarch64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3
+openat(AT_FDCWD, "/lib/aarch64-linux-gnu/libpcre2-8.so.0", O_RDONLY|O_CLOEXEC) = 3
+openat(AT_FDCWD, "/proc/filesystems", O_RDONLY|O_CLOEXEC) = 3
+openat(AT_FDCWD, ".", O_RDONLY|O_NONBLOCK|O_CLOEXEC|O_DIRECTORY) = 3
+openat(AT_FDCWD, "/etc/nsswitch.conf", O_RDONLY|O_CLOEXEC) = 4
+openat(AT_FDCWD, "/etc/passwd", O_RDONLY|O_CLOEXEC) = 4
+openat(AT_FDCWD, "/etc/group", O_RDONLY|O_CLOEXEC) = 4
+openat(AT_FDCWD, "/etc/localtime", O_RDONLY|O_CLOEXEC) = -1 ENOENT (No such file or directory)
+```
+
+- 4 calls load the dynamic linker cache and the shared libraries.
+- 1 reads `/proc/filesystems` (C library startup).
+- 1 opens the directory `.` itself.
+- 3 (`nsswitch.conf`, `passwd`, `group`) exist only because of `-l`: `ls` needs them to turn the numeric owner and group IDs into names like `root`.
+- The failed call is `/etc/localtime`: the minimal Ubuntu container has no timezone file, so the kernel returns `-1 ENOENT` and `ls` falls back to UTC for the dates.
+
+For scale, `strace -c ls -l` (no filter) reports **110** system calls in total, so `openat` is only about a tenth of them; most of the rest are `mmap`, `close`, `fstat` and `read`.
+
+### Observation: the number of `write` calls depends on where stdout goes
+
+Running the same `./syscalls` with its output redirected to a file gives **2** `write` calls instead of 4:
+
+```
+$ strace -o trace.txt -e trace=write ./syscalls > out.txt
+write(3, "hello, kernel\n", 14)         = 14
+write(1, "open returned descriptor 3\nwrite"..., 80) = 80
+```
+
+`printf` does not call `write` directly; it puts text in a buffer in the C library. When stdout is a terminal the buffer is flushed at every `\n` (line buffering), so each `printf` becomes its own `write(1, ...)`. When stdout is a file or a pipe the buffer is flushed only when it is full or the program exits (full buffering), so all three messages leave in a single 80-byte `write`. The direct `write(3, ...)` to `note.txt` is a real system call and is always exactly one. Note also that in this run the file write comes *first*, because the `printf` text was still waiting in the buffer.
