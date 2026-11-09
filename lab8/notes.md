@@ -5,7 +5,7 @@
 
 Files: `user/run.c`, `user/pingpong.c`, `user/primes.c` (optional), `Makefile` (with the `$U/_run\`, `$U/_pingpong\` and `$U/_primes\` lines in UPROGS).
 
-> The outputs below are the **expected outputs from the lab sheet**. They were not produced by running xv6 on my machine. Before committing, replace them with the output you see in QEMU. PIDs and the `ls` listing will be different on your machine.
+> All outputs below were produced by building this xv6 tree (with the `Makefile` from this folder) and running it in QEMU 8.2.2 (`riscv64-linux-gnu-gcc` 13.3.0, Ubuntu 24.04). Each variant of `run` was run right after a fresh boot.
 
 ---
 
@@ -28,51 +28,55 @@ $
 $ run
 parent: my pid is 3
 child: my pid is 4
-README
-cat
-echo
-sleep
-args
-mystat
-find
-run
-pingpong
-primes
-forktest
-grep
-init
-kill
-ln
-ls
-mkdir
-rm
-sh
-stressfs
-usertests
-grind
-wc
-zombie
-logstress
-forphan
-dorphan
-sync
-console
-
-<!-- Reconstructed from the file names in the Makefile (UPROGS) and mkfs, not copied from a real run. Replace with the actual ls output when you run xv6. -->
+.              1 1 1024
+..             1 1 1024
+README         2 2 2441
+cat            2 3 35424
+echo           2 4 34352
+sleep          2 5 34072
+args           2 6 34072
+mystat         2 7 35112
+find           2 8 41608
+run            2 9 34656
+pingpong       2 10 34688
+primes         2 11 35424
+forktest       2 12 17328
+grep           2 13 42784
+init           2 14 34816
+kill           2 15 34280
+ln             2 16 34088
+ls             2 17 41568
+mkdir          2 18 34328
+rm             2 19 34312
+sh             2 20 56176
+stressfs       2 21 35208
+usertests      2 22 200104
+grind          2 23 50552
+wc             2 24 36384
+zombie         2 25 33696
+logstress      2 26 36232
+forphan        2 27 35096
+dorphan        2 28 34544
+sync           2 29 33760
+console        3 30 0
 parent: child 4 ended with status 0
 $
 ```
+
+The child prints the listing of the root directory: name, type (1 = directory, 2 = file, 3 = device), inode number and size in bytes. `run`, `pingpong` and `primes` are in the list because of the UPROGS lines.
 
 ### `nosuchprog` (step 1.4: `exec("nosuchprog", args);`)
 
 ```
 $ run
 parent: my pid is 3
-child: my pid is 8
+child: my pid is 4
 exec failed
-parent: child 8 ended with status 1
+parent: child 4 ended with status 1
 $
 ```
+
+The lab sheet shows `child 8` because there the program was run after several other commands in the same session; every new process gets the next PID. After a fresh boot the child is PID 4.
 
 ### Observe
 
@@ -93,12 +97,12 @@ $
 
 ```
 $ pingpong
-10: received ping
-9: received pong
+6: received ping
+5: received pong
 $
 ```
 
-PIDs will differ on your machine. "ping" must come first, from the child.
+`pingpong` was run in the same session right after `run` (which used PIDs 3 and 4), so the parent is PID 5 and the child PID 6. "ping" comes first, from the child, as required.
 
 ### Observe
 
@@ -112,9 +116,10 @@ PIDs will differ on your machine. "ping" must come first, from the child.
 
 ## Optional — primes (not graded)
 
-Expected output of `primes` (every prime from 2 to 35, one per line, in increasing order):
+Output of `primes` (every prime from 2 to 35, one per line, in increasing order):
 
 ```
+$ primes
 prime 2
 prime 3
 prime 5
@@ -126,4 +131,5 @@ prime 19
 prime 23
 prime 29
 prime 31
+$
 ```
