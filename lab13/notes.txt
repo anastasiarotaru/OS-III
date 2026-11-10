@@ -1,0 +1,204 @@
+Lab 13: Semaphores in Your Own Kernel (xv6)
+============================================
+
+Student: Rotaru Anastasia, FAF-242
+Course:  Operating Systems, FCIM / FAF, UTM, 2026-2027
+
+The modified xv6 tree is in lab13/xv6 (started from the Lab 10 tree, so it
+still has trace as system call 23). Built with riscv64-linux-gnu-gcc 13.3.0
+and run with "make qemu" (QEMU 8.2.2, 3 CPUs).
+
+Changed / new files:
+  kernel/syscall.h   SYS_sem_init 24, SYS_sem_down 25, SYS_sem_up 26
+                     (+ SYS_sem_trydown 27, optional)
+  kernel/sem.c       NEW: the semaphore table and the system calls
+  kernel/syscall.c   extern declarations, syscalls[] entries, and the names
+                     in syscallnames[] (so that trace can print them)
+  user/user.h        declarations of sem_init, sem_down, sem_up, sem_trydown
+  user/usys.pl       entry("sem_init"), entry("sem_down"), entry("sem_up"),
+                     entry("sem_trydown")
+  user/semtest.c     NEW: test program (order + ping-pong)
+  user/mix.c         NEW: two processes printing, with and without a lock
+  user/trytest.c     NEW (optional): shows both answers of sem_trydown
+  Makefile           $K/sem.o in OBJS; _semtest, _mix, _trytest in UPROGS
+  README             added: mkfs needs it to build fs.img
+
+
+------------------------------------------------------------------------
+Check 1: the calls reach the kernel, which does not know them yet
+------------------------------------------------------------------------
+(Part 1 done, kernel/sem.c and the syscall table entries not yet added.)
+
+$ semtest
+3 semtest: unknown sys call 24
+4 semtest: unknown sys call 25
+child: I ran after the parent
+parent: done, I let the child go
+3 semtest: unknown sys call 26
+3 semtest: unknown sys call 24
+3 semtest: unknown sys call 24
+3 semtest: unknown sys call 25
+5 semtest: unknown sys call 25
+p i npgo ng1
+13 semtest: unknown sys call 26
+3 semtest: unknown sys call 25
+
+p5 semtest: unknown sys call 26
+5 semtest: unknown sys call 25
+ i npong 2
+5 semtest: unknowng sys call 26
+5 semtest: unknown sys call 25
+  2
+p3 semtest: unknown sys call 26
+o3 semtest: unknown sys call 25
+ng p3i
+n5 semtest: unknown sys call 26
+g 3
+3 semtest: unknown sys call 26
+semtest: OK
+
+The "child:" line comes BEFORE the "parent:" line: sem_down(0) did nothing
+(unknown sys call 25 -> returns -1), so the child did not wait for the parent.
+
+
+------------------------------------------------------------------------
+Check 2: semtest
+------------------------------------------------------------------------
+$ semtest
+parent: done, I let the child go
+child: I ran after the parent
+ping 1
+  pong 1
+ping 2
+  pong 2
+ping 3
+  pong 3
+semtest: OK
+
+The parent waits 10 ticks (pause(10)) before sem_up(0), yet the child prints
+second: it was asleep in sem_down(0). Ping and pong alternate strictly.
+
+
+------------------------------------------------------------------------
+Part 3: mix
+------------------------------------------------------------------------
+Without the lock, first run:
+
+$ mix
+AAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAb
+bA
+AbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbbAbAbAbAbAbAbAAbAb
+bA
+AbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAbAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+bbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+Without the lock, second run (mixed differently):
+
+$ mix
+AAAAAAAAAAbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbAbAbAbAbbAbAbAbAbAbAbAbAbAbAbA
+AbAbAbAbAb
+bAbAbAbAbAbAbAbAbAbAbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+AAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+
+With the lock:
+
+$ mix lock
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+
+
+------------------------------------------------------------------------
+Observe
+------------------------------------------------------------------------
+
+1. Without the lock, why do the letters mix? (How many system calls does
+   one line cost?)
+
+   One line costs 31 system calls: lines() calls write(1, p, 1) once for
+   every character, 30 letters plus the '\n'. The kernel makes each single
+   write() whole, but nothing keeps the 31 writes of one line together.
+   make qemu starts xv6 with 3 CPUs, so the two processes really run at the
+   same time on different CPUs, and the scheduler can also switch between
+   them after any system call. Between two writes of process A, process B
+   can do one or more writes of its own, so the letters of the two lines
+   interleave ("AbAbAb..."), and how they interleave changes from run to run.
+
+2. With the lock every line is whole. Which two lines of mix.c make one line
+   a critical section?
+
+       if (uselock)
+         sem_down(3);          // before the loop that writes the line
+       ...
+       if (uselock)
+         sem_up(3);            // after the loop
+
+   Semaphore 3 starts at 1 (sem_init(3, 1) in main), so it works as a lock:
+   sem_down(3) lets only one process at a time into the loop of 31 writes,
+   and sem_up(3) lets the other one in only after the whole line, '\n'
+   included, has been written.
+
+3. In sem_down the test is "while (s->value == 0)", not "if". Why can a
+   process wake up and still find 0?
+
+   - sem_up calls wakeup(s), and wakeup wakes EVERY process that sleeps on
+     the address s, not just one. sem_up added only one unit. The first
+     woken process to take s->lock takes it and the value is 0 again, so
+     the others wake up and find 0.
+   - Between wakeup() and the moment the woken process runs again and takes
+     s->lock, a third process that was not sleeping can call sem_down,
+     find value 1 and take the unit first.
+   - A process can also leave sleep() for a reason that has nothing to do
+     with the semaphore: kkill() makes a SLEEPING process RUNNABLE so that
+     it can notice it was killed. sem_down checks killed() for exactly this
+     case.
+   With "while", the process checks the value again after every wakeup and
+   goes back to sleep if it is still 0. With "if", it would do
+   s->value-- on 0, the value would become -1, and two processes could be
+   in the critical section at the same time.
+
+4. sem_down calls release(&s->lock) BEFORE sleep(). What would go wrong if
+   it slept holding the spinlock?
+
+   The process that must wake it up can never run sem_up: sem_up starts with
+   acquire(&s->lock), which would spin forever on another CPU, because the
+   sleeper holds that lock and will not release it until it is woken. The
+   sleeper waits for sem_up and sem_up waits for the sleeper: a deadlock.
+   Every later sem_init/sem_down/sem_up on that semaphore would also spin
+   forever. A spinlock also turns interrupts off on its CPU (push_off), and
+   xv6 refuses to switch away while holding any lock other than p->lock:
+   sched() checks "mycpu()->noff != 1" and the kernel would panic with
+   "sched locks".
+   Releasing the lock before sleep() does not lose a wakeup, because
+   sleep_prepare(s) already set p->chan = s. If sem_up runs between
+   release() and sleep(), wakeup(s) clears p->chan, and sleep() sees
+   p->chan == 0 and returns at once instead of sleeping.
+
+
+------------------------------------------------------------------------
+Optional: sem_trydown (number 27)
+------------------------------------------------------------------------
+Like sem_down, but if the value is 0 it returns -1 at once instead of
+sleeping (kernel/sem.c: sys_sem_trydown; test: user/trytest.c).
+
+$ trytest
+value 1: sem_trydown(4) = 0   (took the unit)
+value 0: sem_trydown(4) = -1  (nothing to take, did not sleep)
+after sem_up(4): sem_trydown(4) = 0
