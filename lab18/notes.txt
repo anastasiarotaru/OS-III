@@ -1,0 +1,423 @@
+Lab 18: Build a User-Level Thread Switch (xv6)
+===============================================
+
+Student: Rotaru Anastasia, FAF-242
+Course:  Operating Systems, FCIM / FAF, UTM, 2026-2027
+
+The xv6 tree is in lab18/xv6 (copied from the Lab 13 tree, so it still has
+trace and the semaphore system calls). No kernel file was changed: the whole
+thread library runs in user space. Built with riscv64-linux-gnu-gcc 13.3.0
+and run with "make qemu" (QEMU 8.2.2, 3 CPUs) in an Ubuntu 24.04 container.
+
+Changed / new files:
+  user/uthread.c         NEW: the thread library (struct context, thread_init,
+                         thread_schedule, thread_create, thread_yield) and the
+                         test with thread_a, thread_b, thread_c
+  user/uthread_switch.S  NEW: thread_switch, same shape as kernel/swtch.S
+  Makefile               $U/_uthread in UPROGS, and the link rule for
+                         _uthread (uthread.o + uthread_switch.o) at the end
+
+
+------------------------------------------------------------------------
+Part 1: the switch (the three TODO places)
+------------------------------------------------------------------------
+1) struct context: the 14 callee-saved registers, each uint64, in the same
+   order as the offsets used in uthread_switch.S:
+
+     ra (0), sp (8), s0 (16), s1 (24), ... s11 (104)
+
+2) thread_create: the new thread has never run, so its context is built by
+   hand. The stack grows down, so sp starts at the END of the stack array:
+
+     memset(&t->ctx, 0, sizeof(t->ctx));
+     t->ctx.ra = (uint64)func;                      /* where to "return"   */
+     t->ctx.sp = (uint64)(t->stack + STACK_SIZE);   /* top of own stack    */
+
+   (STACK_SIZE = 8192 is a multiple of 16 and the stack is aligned(16), so
+   sp is 16-byte aligned, as the RISC-V calling convention requires.)
+
+3) thread_schedule: when another thread is chosen
+
+     struct thread *old = current_thread;
+     next_thread->state = RUNNING;
+     current_thread = next_thread;
+     thread_switch(&old->ctx, &next_thread->ctx);
+
+   current_thread is changed BEFORE the switch, because after the switch the
+   code that runs is the other thread's, and it must already see itself as
+   current.
+
+
+------------------------------------------------------------------------
+Part 2: run it
+------------------------------------------------------------------------
+$ make qemu
+xv6 kernel is booting
+
+hart 1 starting
+hart 2 starting
+init: starting sh
+$ uthread
+thread_a started
+thread_b started
+thread_c started
+thread_c 0
+thread_a 0
+thread_b 0
+thread_c 1
+thread_a 1
+thread_b 1
+thread_c 2
+thread_a 2
+thread_b 2
+thread_c 3
+thread_a 3
+thread_b 3
+thread_c 4
+thread_a 4
+thread_b 4
+thread_c 5
+thread_a 5
+thread_b 5
+thread_c 6
+thread_a 6
+thread_b 6
+thread_c 7
+thread_a 7
+thread_b 7
+thread_c 8
+thread_a 8
+thread_b 8
+thread_c 9
+thread_a 9
+thread_b 9
+thread_c 10
+thread_a 10
+thread_b 10
+thread_c 11
+thread_a 11
+thread_b 11
+thread_c 12
+thread_a 12
+thread_b 12
+thread_c 13
+thread_a 13
+thread_b 13
+thread_c 14
+thread_a 14
+thread_b 14
+thread_c 15
+thread_a 15
+thread_b 15
+thread_c 16
+thread_a 16
+thread_b 16
+thread_c 17
+thread_a 17
+thread_b 17
+thread_c 18
+thread_a 18
+thread_b 18
+thread_c 19
+thread_a 19
+thread_b 19
+thread_c 20
+thread_a 20
+thread_b 20
+thread_c 21
+thread_a 21
+thread_b 21
+thread_c 22
+thread_a 22
+thread_b 22
+thread_c 23
+thread_a 23
+thread_b 23
+thread_c 24
+thread_a 24
+thread_b 24
+thread_c 25
+thread_a 25
+thread_b 25
+thread_c 26
+thread_a 26
+thread_b 26
+thread_c 27
+thread_a 27
+thread_b 27
+thread_c 28
+thread_a 28
+thread_b 28
+thread_c 29
+thread_a 29
+thread_b 29
+thread_c 30
+thread_a 30
+thread_b 30
+thread_c 31
+thread_a 31
+thread_b 31
+thread_c 32
+thread_a 32
+thread_b 32
+thread_c 33
+thread_a 33
+thread_b 33
+thread_c 34
+thread_a 34
+thread_b 34
+thread_c 35
+thread_a 35
+thread_b 35
+thread_c 36
+thread_a 36
+thread_b 36
+thread_c 37
+thread_a 37
+thread_b 37
+thread_c 38
+thread_a 38
+thread_b 38
+thread_c 39
+thread_a 39
+thread_b 39
+thread_c 40
+thread_a 40
+thread_b 40
+thread_c 41
+thread_a 41
+thread_b 41
+thread_c 42
+thread_a 42
+thread_b 42
+thread_c 43
+thread_a 43
+thread_b 43
+thread_c 44
+thread_a 44
+thread_b 44
+thread_c 45
+thread_a 45
+thread_b 45
+thread_c 46
+thread_a 46
+thread_b 46
+thread_c 47
+thread_a 47
+thread_b 47
+thread_c 48
+thread_a 48
+thread_b 48
+thread_c 49
+thread_a 49
+thread_b 49
+thread_c 50
+thread_a 50
+thread_b 50
+thread_c 51
+thread_a 51
+thread_b 51
+thread_c 52
+thread_a 52
+thread_b 52
+thread_c 53
+thread_a 53
+thread_b 53
+thread_c 54
+thread_a 54
+thread_b 54
+thread_c 55
+thread_a 55
+thread_b 55
+thread_c 56
+thread_a 56
+thread_b 56
+thread_c 57
+thread_a 57
+thread_b 57
+thread_c 58
+thread_a 58
+thread_b 58
+thread_c 59
+thread_a 59
+thread_b 59
+thread_c 60
+thread_a 60
+thread_b 60
+thread_c 61
+thread_a 61
+thread_b 61
+thread_c 62
+thread_a 62
+thread_b 62
+thread_c 63
+thread_a 63
+thread_b 63
+thread_c 64
+thread_a 64
+thread_b 64
+thread_c 65
+thread_a 65
+thread_b 65
+thread_c 66
+thread_a 66
+thread_b 66
+thread_c 67
+thread_a 67
+thread_b 67
+thread_c 68
+thread_a 68
+thread_b 68
+thread_c 69
+thread_a 69
+thread_b 69
+thread_c 70
+thread_a 70
+thread_b 70
+thread_c 71
+thread_a 71
+thread_b 71
+thread_c 72
+thread_a 72
+thread_b 72
+thread_c 73
+thread_a 73
+thread_b 73
+thread_c 74
+thread_a 74
+thread_b 74
+thread_c 75
+thread_a 75
+thread_b 75
+thread_c 76
+thread_a 76
+thread_b 76
+thread_c 77
+thread_a 77
+thread_b 77
+thread_c 78
+thread_a 78
+thread_b 78
+thread_c 79
+thread_a 79
+thread_b 79
+thread_c 80
+thread_a 80
+thread_b 80
+thread_c 81
+thread_a 81
+thread_b 81
+thread_c 82
+thread_a 82
+thread_b 82
+thread_c 83
+thread_a 83
+thread_b 83
+thread_c 84
+thread_a 84
+thread_b 84
+thread_c 85
+thread_a 85
+thread_b 85
+thread_c 86
+thread_a 86
+thread_b 86
+thread_c 87
+thread_a 87
+thread_b 87
+thread_c 88
+thread_a 88
+thread_b 88
+thread_c 89
+thread_a 89
+thread_b 89
+thread_c 90
+thread_a 90
+thread_b 90
+thread_c 91
+thread_a 91
+thread_b 91
+thread_c 92
+thread_a 92
+thread_b 92
+thread_c 93
+thread_a 93
+thread_b 93
+thread_c 94
+thread_a 94
+thread_b 94
+thread_c 95
+thread_a 95
+thread_b 95
+thread_c 96
+thread_a 96
+thread_b 96
+thread_c 97
+thread_a 97
+thread_b 97
+thread_c 98
+thread_a 98
+thread_b 98
+thread_c 99
+thread_a 99
+thread_b 99
+thread_c: exit after 100
+thread_a: exit after 100
+thread_b: exit after 100
+thread_schedule: no runnable threads
+
+The three threads take turns exactly as expected: after the start-up
+("started" for a, b, c), every thread prints one number and yields, and the
+round-robin order is c, a, b. Each one counts to 99 ("exit after 100"), and
+when all three are FREE, thread_schedule finds no runnable thread and exits.
+
+Why c prints first: main switches to a, which prints "started", sets
+a_started and yields (b and c have not started yet) to b. b does the same and
+yields to c. When c starts, a_started and b_started are already 1, so c skips
+its while loop, prints "thread_c 0" and yields. Only now do a and then b
+re-check their while loops, find all three flags set, and print their 0.
+From there on the round-robin order c, a, b repeats.
+
+
+------------------------------------------------------------------------
+Observe: what exactly does thread_switch save and load? Why is ra the
+register that makes execution continue in the other thread?
+------------------------------------------------------------------------
+thread_switch(old, new) saves 14 registers of the running thread into
+*old (a0): ra, sp and s0..s11, and then loads the same 14 registers from
+*new (a1). These are exactly the callee-saved registers of the RISC-V
+calling convention, plus ra and sp.
+
+It does not need to save anything else:
+  - thread_switch is called like a normal C function, so the compiler
+    already assumes that the caller-saved registers (t0-t6, a0-a7) are
+    destroyed by the call and saved them on the stack itself if it needed
+    them;
+  - the local variables of the thread live on its own stack, which is not
+    copied: it is enough to switch sp to point into the other stack;
+  - pc is not saved explicitly, because the place where the thread stopped
+    is already in ra (the return address of the call to thread_switch).
+
+Why ra: the last instruction of thread_switch is "ret", which is just
+"jump to the address in ra". thread_switch was CALLED by the old thread, but
+before ret it loads ra (and sp) of the NEW thread. So ret does not return to
+the caller; it returns into the new thread:
+  - if the new thread has run before, its saved ra is the instruction after
+    its own call to thread_switch (inside thread_schedule), so it continues
+    there, on its own stack (the restored sp), as if its call had just
+    returned;
+  - if the new thread has never run, its ra is the function set by
+    thread_create (thread_a, thread_b or thread_c), so ret jumps to the
+    beginning of that function, with sp at the top of its fresh stack.
+
+So ra decides WHERE execution continues and sp decides ON WHICH STACK; the
+s registers give back the values the thread's compiled code expects to
+find. This is the same thing that the kernel's swtch does between a process
+and the scheduler, but here it happens entirely in user space, without any
+system call and without the kernel knowing that there are threads.
+
+What goes wrong without the right ra/sp in thread_create: with ra = 0 the
+first ret jumps to address 0 (the start of the program, or a page fault),
+and with sp = 0 or the bottom of the stack the first push writes outside the
+thread's stack and destroys other memory (for example the context or the
+stack of the previous thread).
